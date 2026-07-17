@@ -1,0 +1,12 @@
+# 含登录凭证，切勿提交
+config.json
+
+# 工作日志（WorkBuddy 内部文件）
+.workbuddy/
+
+# Python
+__pycache__/
+*.pyc
+
+# 日志
+v2ex.log

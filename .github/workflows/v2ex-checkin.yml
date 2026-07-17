@@ -1,0 +1,38 @@
+name: V2EX 每日签到
+
+on:
+  schedule:
+    # ================================================================
+    # 自定义签到时间：修改下方 cron 表达式（UTC 时间！北京时间 = UTC + 8）
+    #   北京 00:30 = UTC 16:30 → '30 16 * * *'
+    #   北京 08:00 = UTC 00:00 → '0 0 * * *'
+    #   北京 09:05 = UTC 01:05 → '5 1 * * *'
+    #   多个时间：多写几行 cron 即可
+    # 改完 push 到 GitHub 即生效
+    # ================================================================
+    - cron: '30 16 * * *'
+  workflow_dispatch: # 手动触发（Actions 页 → Run workflow）
+
+jobs:
+  checkin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: pip install requests
+
+      - name: 执行签到
+        env:
+          # 单账号：只需 V2EX_COOKIE
+          # 多账号：用 V2EX_ACCOUNTS（JSON 数组），V2EX_COOKIE 可不配
+          # 两者可同时存在，脚本会合并执行
+          V2EX_COOKIE: ${{ secrets.V2EX_COOKIE }}
+          V2EX_ACCOUNTS: ${{ secrets.V2EX_ACCOUNTS }}
+        run: python v2ex_checkin.py

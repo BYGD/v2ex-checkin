@@ -1,0 +1,12 @@
+{
+  "accounts": [
+    {
+      "name": "主号",
+      "cookie": "A2=你的A2值; A2O=你的A2O值"
+    },
+    {
+      "name": "小号",
+      "cookie": "A2=小号A2值"
+    }
+  ]
+}
