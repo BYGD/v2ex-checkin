@@ -35,4 +35,7 @@ jobs:
           # 两者可同时存在，脚本会合并执行
           V2EX_COOKIE: ${{ secrets.V2EX_COOKIE }}
           V2EX_ACCOUNTS: ${{ secrets.V2EX_ACCOUNTS }}
+          # Telegram 通知（可选，不配则不推送）
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python v2ex_checkin.py

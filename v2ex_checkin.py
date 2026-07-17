@@ -35,6 +35,13 @@ V2EX 每日自动签到脚本
      - 也可在 Actions 页手动 Run workflow 测试
   B. Windows 任务计划程序 / Linux crontab：
      5 9 * * * /path/to/python /path/to/v2ex_checkin.py >> v2ex.log 2>&1
+
+【Telegram 通知】（可选）
+  签到完成后将结果推送到 Telegram，需配置两个环境变量：
+    TG_BOT_TOKEN — 通过 @BotFather 创建 Bot 获取
+    TG_CHAT_ID   — 你的 Chat ID（通过 @userinfobot 获取）
+  未配置则自动跳过，不影响签到。
+  GitHub Actions 用户：把这两个值加到仓库 Secrets 里即可。
 """
 
 import os
@@ -42,7 +49,7 @@ import re
 import sys
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 try:
     import requests
@@ -57,6 +64,25 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 def log(name, msg):
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [{name}] {msg}", flush=True)
+
+
+def send_telegram(text):
+    """通过 Telegram Bot 推送通知，需配置 TG_BOT_TOKEN 和 TG_CHAT_ID 环境变量"""
+    token = os.getenv("TG_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TG_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return  # 未配置则跳过，不影响签到
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+                  "disable_web_page_preview": True},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            log("TG", f"通知发送失败 HTTP {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        log("TG", f"通知发送异常: {e}")
 
 
 def load_config():
@@ -144,15 +170,30 @@ def main():
 
     log("系统", f"开始签到，共 {len(accounts)} 个账号")
     ok = 0
+    results = []
     for name, cookie in accounts:
         try:
             if checkin(name, cookie):
                 ok += 1
+                results.append(f"✅ {name}")
+            else:
+                results.append(f"❌ {name}")
         except requests.RequestException as e:
             log(name, f"X 网络错误: {e}")
+            results.append(f"❌ {name}（网络错误）")
         time.sleep(2)  # 多账号间隔，避免请求过快
 
     log("系统", f"完成：{ok}/{len(accounts)} 成功")
+
+    # Telegram 通知
+    now_bj = datetime.now(timezone(timedelta(hours=8)))
+    icon = "✅" if ok == len(accounts) else "⚠️"
+    msg = (f"<b>{icon} V2EX 签到报告</b>\n"
+           f"时间：{now_bj:%Y-%m-%d %H:%M}\n"
+           f"结果：{ok}/{len(accounts)} 成功\n\n")
+    msg += "\n".join(results)
+    send_telegram(msg)
+
     sys.exit(0 if ok == len(accounts) else 1)
 
 
