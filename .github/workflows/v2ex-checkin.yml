@@ -3,15 +3,14 @@ name: V2EX 每日签到
 on:
   schedule:
     # ================================================================
-    # 自定义签到时间：修改下方 cron 表达式（UTC 时间！北京时间 = UTC + 8）
-    #   北京 00:30 = UTC 16:30 → '30 16 * * *'
-    #   北京 08:00 = UTC 00:00 → '0 0 * * *'
-    #   北京 09:05 = UTC 01:05 → '5 1 * * *'
-    #   多个时间：多写几行 cron 即可
-    # 改完 push 到 GitHub 即生效
+    # cron 设为 UTC 02:00（北京 10:00）触发
+    # 触发后随机延迟 0~7200 秒（0~2 小时），实际签到在 10:00~12:00 之间
+    # 想改时间段：改 cron 的触发起点 + 下方延迟范围
+    #   北京 10:00 = UTC 02:00 → '0 2 * * *'
+    #   北京 11:00 = UTC 03:00 → '0 3 * * *'
     # ================================================================
-    - cron: '30 16 * * *'
-  workflow_dispatch: # 手动触发（Actions 页 → Run workflow）
+    - cron: '0 2 * * *'
+  workflow_dispatch: # 手动触发（Actions 页 → Run workflow，手动跑不延迟）
 
 jobs:
   checkin:
@@ -27,6 +26,13 @@ jobs:
 
       - name: 安装依赖
         run: pip install requests
+
+      - name: 随机延迟
+        if: github.event_name == 'schedule'
+        run: |
+          DELAY=$((RANDOM % 7200))
+          echo "随机延迟 $DELAY 秒（约 $((DELAY / 60)) 分钟），实际签到时间在 10:00~12:00 之间"
+          sleep $DELAY
 
       - name: 执行签到
         env:
