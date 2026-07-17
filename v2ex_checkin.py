@@ -123,6 +123,7 @@ def load_config():
 
 
 def checkin(name, cookie):
+    """签到，返回 (success: bool, reward: str)"""
     s = requests.Session()
     s.headers.update({
         "User-Agent": UA,
@@ -137,10 +138,10 @@ def checkin(name, cookie):
     # 未登录会重定向到 /signin，或页面提示需登录
     if "/signin" in r.url or "You need to sign in" in r.text or "请先登录" in r.text:
         log(name, "X 未登录或 Cookie 已失效")
-        return False
+        return False, "未登录或 Cookie 已失效"
     if "每日登录奖励已领取" in r.text:
         log(name, "OK 今日已签到（之前领过了）")
-        return True
+        return True, "今日已签过"
 
     # 2. 提取 once token
     m = re.search(r'/mission/daily/redeem\?once=(\d+)', r.text)
@@ -148,19 +149,24 @@ def checkin(name, cookie):
         m = re.search(r'once=(\d+)', r.text)
     if not m:
         log(name, "X 未找到签到 token，页面结构可能已变化")
-        return False
+        return False, "未找到签到 token"
     once = m.group(1)
 
     # 3. 领取奖励
     r2 = s.get(f"{BASE_URL}/mission/daily/redeem?once={once}",
                timeout=TIMEOUT, allow_redirects=True)
+    if r2.status_code != 200:
+        log(name, f"X 签到失败 HTTP {r2.status_code}")
+        return False, f"签到失败 HTTP {r2.status_code}"
+
+    # 4. 提取奖励信息
     bonus = re.search(r'(\d+)\s*(?:个)?\s*(铜币|银币|金币)', r2.text)
-    bonus_str = f"（获得 {bonus.group(1)} {bonus.group(2)}）" if bonus else ""
-    if r2.status_code == 200:
-        log(name, f"OK 签到成功 {bonus_str}".rstrip())
-        return True
-    log(name, f"X 签到失败 HTTP {r2.status_code}")
-    return False
+    if bonus:
+        reward_str = f"获得 {bonus.group(1)} {bonus.group(2)}"
+        log(name, f"OK 签到成功（{reward_str}）")
+        return True, reward_str
+    log(name, "OK 签到成功")
+    return True, "签到成功（奖励信息未识别）"
 
 
 def main():
@@ -171,19 +177,29 @@ def main():
     log("系统", f"开始签到，共 {len(accounts)} 个账号")
     ok = 0
     results = []
+    coins = {}  # {币种: 数量} 汇总今天新领取的
     for name, cookie in accounts:
         try:
-            if checkin(name, cookie):
+            success, reward = checkin(name, cookie)
+            if success:
                 ok += 1
-                results.append(f"✅ {name}")
+                results.append(f"✅ {name} — {reward}")
+                # 提取奖励数量汇总
+                for amt, unit in re.findall(r'(\d+)\s*(铜币|银币|金币)', reward):
+                    coins[unit] = coins.get(unit, 0) + int(amt)
             else:
-                results.append(f"❌ {name}")
+                results.append(f"❌ {name} — {reward}")
         except requests.RequestException as e:
             log(name, f"X 网络错误: {e}")
             results.append(f"❌ {name}（网络错误）")
         time.sleep(2)  # 多账号间隔，避免请求过快
 
     log("系统", f"完成：{ok}/{len(accounts)} 成功")
+
+    # 统计今天领取的奖励
+    coin_summary = ""
+    if coins:
+        coin_summary = "今日收获：" + "，".join(f"{v} {k}" for k, v in coins.items())
 
     # Telegram 通知
     now_bj = datetime.now(timezone(timedelta(hours=8)))
@@ -192,6 +208,8 @@ def main():
            f"时间：{now_bj:%Y-%m-%d %H:%M}\n"
            f"结果：{ok}/{len(accounts)} 成功\n\n")
     msg += "\n".join(results)
+    if coin_summary:
+        msg += f"\n\n💰 {coin_summary}"
     send_telegram(msg)
 
     sys.exit(0 if ok == len(accounts) else 1)
