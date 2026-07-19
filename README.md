@@ -10,6 +10,7 @@
 - 签到结果 Telegram 推送通知
 - 今日领取的铜币/银币/金币数量统计
 - GitHub Actions 定时执行，21:00~00:00 随机签到，免服务器
+- 也支持本地 / 服务器部署（crontab / systemd timer / Windows 任务计划）
 
 ## 快速开始
 
@@ -132,33 +133,56 @@ DELAY=$((RANDOM % 10800))
 💎 今日收获 · 50 铜币
 ```
 
-## 本地运行
+## 本地 / 服务器部署
 
-### 安装依赖
+不想依赖 GitHub Actions，也可以在自己的电脑或服务器上跑。适合有 NAS、家用小主机、云服务器，或想完全自己掌控的场景。
+
+### 环境要求
+
+- **Python 3.7+**（推荐 3.10 以上）
+- 依赖：`requests`
+
+### 1. 获取代码
 
 ```bash
+git clone https://github.com/BYGD/v2ex-checkin.git
+cd v2ex-checkin
+```
+
+### 2. 安装依赖
+
+推荐用虚拟环境隔离，避免污染系统 Python：
+
+```bash
+# 创建虚拟环境
+python -m venv venv
+
+# 激活（Linux/Mac）
+source venv/bin/activate
+# 激活（Windows PowerShell）
+venv\Scripts\Activate.ps1
+# 激活（Windows Git Bash）
+source venv/Scripts/activate
+
+# 安装依赖
 pip install requests
 ```
 
-### 方式一：环境变量
+> 不想用虚拟环境也行，直接 `pip install requests` 即可。
+
+### 3. 配置 Cookie
+
+Cookie 获取方式见上方 [获取 Cookie](#2-获取-cookie) 章节，这里讲怎么填给脚本。**三选一**，也可组合使用：
+
+#### 方式 A：配置文件（推荐本地用）
+
+复制示例配置，填入你的 Cookie：
 
 ```bash
-# 单账号
-export V2EX_COOKIE="A2=你的A2值"
-python v2ex_checkin.py
-
-# 多账号
-export V2EX_ACCOUNTS='[{"name":"主号","cookie":"A2=...; A2O=..."},{"name":"小号","cookie":"A2=...; A2O=..."}]'
-python v2ex_checkin.py
-
-# Telegram 通知（可选）
-export TG_BOT_TOKEN="你的Bot Token"
-export TG_CHAT_ID="你的Chat ID"
+cp config.example.json config.json
 ```
 
-### 方式二：配置文件
-
-复制 `config.example.json` 为 `config.json`，填入 Cookie：
+编辑 `config.json`：
 
 ```json
 {
@@ -169,20 +193,183 @@ export TG_CHAT_ID="你的Chat ID"
 }
 ```
 
-然后运行：
+单账号也可以简写：
+
+```json
+{
+  "name": "主号",
+  "cookie": "A2=...; A2O=..."
+}
+```
+
+> `config.json` 已被 `.gitignore` 忽略，不会误提交到仓库。
+
+#### 方式 B：环境变量（推荐服务器/CI 用）
+
+```bash
+# 单账号
+export V2EX_COOKIE="A2=你的A2值"
+
+# 多账号（JSON 数组）
+export V2EX_ACCOUNTS='[{"name":"主号","cookie":"A2=...; A2O=..."},{"name":"小号","cookie":"A2=...; A2O=..."}]'
+
+# Telegram 通知（可选）
+export TG_BOT_TOKEN="你的Bot Token"
+export TG_CHAT_ID="你的Chat ID"
+```
+
+Windows PowerShell：
+
+```powershell
+$env:V2EX_COOKIE = "A2=你的A2值"
+python v2ex_checkin.py
+```
+
+> 三种配置方式可叠加，脚本会合并所有账号一起执行。优先级：`V2EX_ACCOUNTS` > `V2EX_COOKIE` > `config.json`。
+
+### 4. 手动运行验证
 
 ```bash
 python v2ex_checkin.py
 ```
 
-### 方式三：定时任务
+看到类似输出就说明配置成功：
 
-```bash
-# Linux/Mac crontab（每天 9:05 执行）
-5 9 * * * /path/to/python /path/to/v2ex_checkin.py >> v2ex.log 2>&1
+```
+[2026-07-20 21:05:12] [系统] 开始签到，共 1 个账号
+[2026-07-20 21:05:14] [主号] OK 签到成功（获得 18 铜币）
+[2026-07-20 21:05:14] [系统] 完成：1/1 成功
 ```
 
-Windows 用任务计划程序，设置每天定时运行 `python v2ex_checkin.py`。
+### 5. 设置定时任务
+
+#### Linux / Mac（crontab）
+
+```bash
+# 编辑定时任务
+crontab -e
+```
+
+添加一行（每天 21:30 执行，记得把路径换成你的实际路径）：
+
+```cron
+# 分 时 日 月 周 命令
+30 21 * * * cd /path/to/v2ex-checkin && /path/to/v2ex-checkin/venv/bin/python v2ex_checkin.py >> /path/to/v2ex-checkin/v2ex.log 2>&1
+```
+
+常用时间示例：
+
+| 时间 | cron 表达式 |
+|------|------------|
+| 每天 08:00 | `0 8 * * *` |
+| 每天 21:30 | `30 21 * * *` |
+| 每天 23:59 | `59 23 * * *` |
+| 每 12 小时 | `0 */12 * * *` |
+
+> 用虚拟环境的话，python 路径写 `/path/to/v2ex-checkin/venv/bin/python`；不用虚拟环境就写 `python3` 或 `which python` 的绝对路径。
+
+#### Linux 服务器（systemd timer，推荐）
+
+比 crontab 更现代，支持日志归集、失败重试、开机自启。
+
+创建服务文件 `/etc/systemd/system/v2ex-checkin.service`：
+
+```ini
+[Unit]
+Description=V2EX Daily Checkin
+After=network-online.target
+
+[Service]
+Type=oneshot
+# 改成你的实际路径和环境变量
+WorkingDirectory=/path/to/v2ex-checkin
+Environment=V2EX_COOKIE=A2=你的值
+Environment=TG_BOT_TOKEN=你的Token
+Environment=TG_CHAT_ID=你的ChatID
+ExecStart=/path/to/v2ex-checkin/venv/bin/python v2ex_checkin.py
+# 日志输出到 journalctl，用 journalctl -u v2ex-checkin 查看
+StandardOutput=journal
+StandardError=journal
+```
+
+创建定时器文件 `/etc/systemd/system/v2ex-checkin.timer`：
+
+```ini
+[Unit]
+Description=Run V2EX checkin daily
+
+[Timer]
+# 每天 21:00~23:59 之间随机触发（RandomizedDelaySec 随机延迟）
+OnCalendar=*-*-* 21:00:00
+RandomizedDelaySec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+启用：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now v2ex-checkin.timer
+
+# 查看定时器状态
+systemctl list-timers v2ex-checkin.timer
+
+# 手动跑一次
+sudo systemctl start v2ex-checkin.service
+
+# 看日志
+journalctl -u v2ex-checkin.service -f
+```
+
+#### Windows（任务计划程序）
+
+1. 按 `Win + R` → 输入 `taskschd.msc` → 回车，打开任务计划程序
+2. 右侧点 **创建基本任务**
+3. **名称**：`V2EX 签到`
+4. **触发器**：每天 → 起始时间设 21:30
+5. **操作**：启动程序
+   - **程序或脚本**：`C:\path\to\python.exe`（写 Python 的绝对路径）
+   - **添加参数**：`v2ex_checkin.py`
+   - **起始于**：`C:\path\to\v2ex-checkin`
+6. 完成后双击该任务 → 勾选「不管用户是否登录都要运行」「使用最高权限运行」
+7. 如需环境变量：在该任务的「条件/设置」里没法直接加，建议用 `config.json` 配置 Cookie
+
+或用命令行一键创建（PowerShell 管理员）：
+
+```powershell
+$python = "C:\path\to\python.exe"
+$script = "C:\path\to\v2ex-checkin\v2ex_checkin.py"
+$action = New-ScheduledTaskAction -Execute $python -Argument $script -WorkingDirectory "C:\path\to\v2ex-checkin"
+$trigger = New-ScheduledTaskTrigger -Daily -At 21:30
+Register-ScheduledTask -TaskName "V2EX签到" -Action $action -Trigger $trigger -RunLevel Highest
+```
+
+### 6. 日志管理（可选）
+
+crontab 方式加 `>> v2ex.log 2>&1` 会持续追加日志，长期运行需要定期清理：
+
+```bash
+# 只保留最近 30 天日志（加到 crontab）
+0 0 * * * find /path/to/v2ex-checkin -name "v2ex.log" -mtime +30 -delete
+```
+
+或用 `logrotate`（Linux）：
+
+```
+# /etc/logrotate.d/v2ex-checkin
+/path/to/v2ex-checkin/v2ex.log {
+    weekly
+    rotate 4
+    compress
+    missingok
+    notifempty
+}
+```
+
+systemd timer 方式无需额外配置，日志自动归集到 journalctl，按系统策略轮转。
 
 ## 配置参考
 
