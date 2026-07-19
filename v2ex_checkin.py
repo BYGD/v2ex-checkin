@@ -219,33 +219,36 @@ def main():
             success, reward = checkin(name, cookie)
             if success:
                 ok += 1
-                results.append(f"✅ {name} — {reward}")
+                results.append(f"✅ <b>{name}</b>\n   └ {reward}")
                 # 提取奖励数量汇总
                 for amt, unit in re.findall(r'(\d+)\s*(铜币|银币|金币)', reward):
                     coins[unit] = coins.get(unit, 0) + int(amt)
             else:
-                results.append(f"❌ {name} — {reward}")
+                results.append(f"❌ <b>{name}</b>\n   └ {reward}")
         except requests.RequestException as e:
             log(name, f"X 网络错误: {e}")
-            results.append(f"❌ {name}（网络错误）")
+            results.append(f"❌ <b>{name}</b>\n   └ 网络错误")
         time.sleep(2)  # 多账号间隔，避免请求过快
 
     log("系统", f"完成：{ok}/{len(accounts)} 成功")
 
-    # 统计今天领取的奖励
-    coin_summary = ""
-    if coins:
-        coin_summary = "今日收获：" + "，".join(f"{v} {k}" for k, v in coins.items())
-
-    # Telegram 通知
+    # Telegram 通知（卡片式排版）
     now_bj = datetime.now(timezone(timedelta(hours=8)))
-    icon = "✅" if ok == len(accounts) else "⚠️"
-    msg = (f"<b>{icon} V2EX 签到报告</b>\n"
-           f"时间：{now_bj:%Y-%m-%d %H:%M}\n"
-           f"结果：{ok}/{len(accounts)} 成功\n\n")
+    sep = "━━━━━━━━━━━━━━━━━━"
+    icon = "🎯" if ok == len(accounts) else "⚠️"
+
+    msg = f"<b>{icon} V2EX 每日签到</b>\n"
+    msg += f"{sep}\n"
+    msg += f"⏰ {now_bj:%Y-%m-%d %H:%M}\n"
+    msg += f"📊 成功 <b>{ok}</b>/<b>{len(accounts)}</b>\n"
+    msg += f"{sep}\n"
     msg += "\n".join(results)
-    if coin_summary:
-        msg += f"\n\n💰 {coin_summary}"
+    msg += f"\n{sep}\n"
+    if coins:
+        coin_str = "，".join(f"{v} {k}" for k, v in coins.items())
+        msg += f"💎 今日收获 · <b>{coin_str}</b>"
+    else:
+        msg += "💎 今日收获 · 无"
     send_telegram(msg)
 
     sys.exit(0 if ok == len(accounts) else 1)
