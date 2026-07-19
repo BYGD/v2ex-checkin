@@ -122,6 +122,21 @@ def load_config():
     return accounts
 
 
+def _extract_reward(html):
+    """从签到页 HTML 提取奖励信息，返回 '获得 X 铜币' 或 ''"""
+    patterns = [
+        r'已成功领取每日登录奖励\s*(\d+)\s*(铜币|银币|金币)',
+        r'每日登录奖励\s*(\d+)\s*(铜币|银币|金币)',
+        r'领取[^<]*?(\d+)\s*(铜币|银币|金币)',
+        r'(\d+)\s*个?\s*(铜币|银币|金币)',
+    ]
+    for p in patterns:
+        m = re.search(p, html)
+        if m:
+            return f"获得 {m.group(1)} {m.group(2)}"
+    return ""
+
+
 def checkin(name, cookie):
     """签到，返回 (success: bool, reward: str)"""
     s = requests.Session()
@@ -140,8 +155,10 @@ def checkin(name, cookie):
         log(name, "X 未登录或 Cookie 已失效")
         return False, "未登录或 Cookie 已失效"
     if "每日登录奖励已领取" in r.text:
-        log(name, "OK 今日已签到（之前领过了）")
-        return True, "今日已签过"
+        reward = _extract_reward(r.text)
+        msg = f"今日已签过（{reward}）" if reward else "今日已签过"
+        log(name, f"OK {msg}")
+        return True, msg
 
     # 2. 提取 once token
     m = re.search(r'/mission/daily/redeem\?once=(\d+)', r.text)
@@ -159,12 +176,31 @@ def checkin(name, cookie):
         log(name, f"X 签到失败 HTTP {r2.status_code}")
         return False, f"签到失败 HTTP {r2.status_code}"
 
-    # 4. 提取奖励信息
-    bonus = re.search(r'(\d+)\s*(?:个)?\s*(铜币|银币|金币)', r2.text)
-    if bonus:
-        reward_str = f"获得 {bonus.group(1)} {bonus.group(2)}"
-        log(name, f"OK 签到成功（{reward_str}）")
-        return True, reward_str
+    # 4. 领取后从"再次请求的签到页"和 redeem 响应里提取奖励
+    #    （V2EX 的"已成功领取 X 铜币"提示框只在领取瞬间显示，刷新即消失）
+    time.sleep(1)
+    r3 = s.get(f"{BASE_URL}/mission/daily", timeout=TIMEOUT, allow_redirects=True)
+    pages = [r3.text if r3.status_code == 200 else "", r2.text]
+
+    # 5. 多重正则提取奖励（两个页面都试）
+    for page in pages:
+        reward = _extract_reward(page)
+        if reward:
+            log(name, f"OK 签到成功（{reward}）")
+            return True, reward
+
+    # 诊断：打印疑似片段，方便下次精确定位
+    for page in pages:
+        for kw in ["铜币", "银币", "金币", "领取", "奖励"]:
+            idx = page.find(kw)
+            if idx >= 0:
+                snippet = page[max(0, idx - 40):idx + 60].strip()
+                log(name, f"诊断 [{kw}] 片段: ...{snippet}...")
+                break
+        else:
+            continue
+        break
+
     log(name, "OK 签到成功")
     return True, "签到成功（奖励信息未识别）"
 
